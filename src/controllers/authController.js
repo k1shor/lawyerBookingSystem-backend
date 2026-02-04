@@ -1,3 +1,4 @@
+// done
 // controllers/authController.js
 import pool from "../config/db.js";
 import bcrypt from "bcryptjs";

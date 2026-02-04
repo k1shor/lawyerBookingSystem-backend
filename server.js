@@ -4,6 +4,11 @@ import morgan from "morgan";
 import cors from 'cors';
 import authRoutes from "./src/routes/authRoutes.js";
 import usersRoutes from "./src/routes/userRoutes.js";
+import lawyersRoutes from "./src/routes/lawyersRoutes.js";
+import appointmentsRoutes from "./src/routes/appointmentsRoutes.js";
+import messagesRoutes from "./src/routes/messagesRoutes.js";
+import notificationsRoutes from "./src/routes/notificationsRoutes.js";
+
 
 dotenv.config();
 const app = express();
@@ -11,10 +16,17 @@ app.use(express.json());
 app.use(morgan('dev'));
 app.use(cors());
 
+app.use('/uploads', express.static('uploads'));
+
 
 // Mount routes
 app.use("/api/auth", authRoutes);
 app.use("/api/users", usersRoutes);
+app.use("/api/lawyers", lawyersRoutes);
+app.use("/api/appointments", appointmentsRoutes);
+app.use("/api/appointments", messagesRoutes);
+app.use("/api/notifications", notificationsRoutes);
+
 
 
 const PORT = process.env.PORT || 5000;
