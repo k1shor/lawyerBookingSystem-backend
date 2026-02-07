@@ -1,12 +1,42 @@
-// done
 // controllers/authController.js
 import pool from "../config/db.js";
 import bcrypt from "bcryptjs";
 import { signToken } from "../utils/jwtUtil.js";
 
+const safeParseJson = (value) => {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+};
+
+const normalizeSpecialization = (value) => {
+  if (value === undefined || value === null) return null;
+
+  if (Array.isArray(value)) {
+    const cleaned = value.map(v => String(v || "").trim()).filter(Boolean);
+    return cleaned.length ? cleaned.join(", ") : null;
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    const maybe = safeParseJson(trimmed);
+    if (Array.isArray(maybe)) {
+      const cleaned = maybe.map(v => String(v || "").trim()).filter(Boolean);
+      return cleaned.length ? cleaned.join(", ") : null;
+    }
+
+    return trimmed;
+  }
+
+  return String(value);
+};
+
 export const register = async (req, res) => {
   try {
-    // Support both old and new payload structures
     const {
       full_name,
       firstName,
@@ -14,101 +44,98 @@ export const register = async (req, res) => {
       email,
       password,
       phone,
-      role,       // old style
-      userType,   // new style from frontend
-      barNumber,
-      lawFirm,
+      role,
+      userType,
+
+      // lawyer-related (frontend can send any of these)
+      specialization,
       yearsOfExperience,
-      specialization, // can be JSON string or array
+      experience_years,
+      hourly_rate,
+      bio,
+      is_verified,
     } = req.body;
 
-    // Effective role: userType preferred, then role, default client
-    const effectiveRole = userType || role || "client";
+    const effectiveRole = (userType || role || "client").toLowerCase().trim();
 
-    if (!email || !password) {
+    const cleanEmail = String(email || "").trim().toLowerCase();
+    if (!cleanEmail || !password) {
       return res.status(400).json({ message: "Email and password are required" });
     }
 
-    // Build full name from firstName + lastName if full_name not provided
     const fullName =
-      full_name ||
+      (full_name && String(full_name).trim()) ||
       [firstName, lastName].filter(Boolean).join(" ").trim();
 
     if (!fullName) {
       return res.status(400).json({ message: "Full name is required" });
     }
 
-    // Check if email exists
-    const [exists] = await pool.query(
-      "SELECT user_id FROM users WHERE email = ?",
-      [email]
-    );
+    const [exists] = await pool.query("SELECT user_id FROM users WHERE email = ?", [cleanEmail]);
     if (exists.length) {
       return res.status(400).json({ message: "Email already used" });
     }
 
-    // Hash password
     const hashed = await bcrypt.hash(password, 10);
 
-    // Insert into users table
     const [result] = await pool.query(
       "INSERT INTO users (full_name, email, password, phone, role) VALUES (?, ?, ?, ?, ?)",
-      [fullName, email, hashed, phone || null, effectiveRole]
+      [fullName, cleanEmail, hashed, phone || null, effectiveRole]
     );
 
     const userId = result.insertId;
 
-    // If the user is a lawyer, insert into lawyers table too
     if (effectiveRole === "lawyer") {
-      // licenseDocument path (if file uploaded)
       const licenseDocumentPath = req.file ? req.file.path : null;
 
-      // specializations: can come as JSON string or array
-      let specializationsValue = null;
-      if (specialization) {
-        try {
-          if (Array.isArray(specialization)) {
-            specializationsValue = JSON.stringify(specialization);
-          } else if (typeof specialization === "string") {
-            // Could already be JSON string from frontend
-            specializationsValue = specialization;
-          }
-        } catch (e) {
-          // fallback: store raw string
-          specializationsValue = String(specialization);
-        }
+      const spec = normalizeSpecialization(specialization);
+
+      const expRaw =
+        yearsOfExperience !== undefined && yearsOfExperience !== null && yearsOfExperience !== ""
+          ? yearsOfExperience
+          : experience_years;
+
+      const expYears = Number(expRaw || 0);
+      if (!Number.isFinite(expYears) || expYears < 0) {
+        return res.status(400).json({ message: "Invalid experience years" });
       }
 
-      // Basic validations for lawyer fields (you may also have validated on frontend)
-      if (!barNumber || !lawFirm || !yearsOfExperience) {
-        return res.status(400).json({
-          message: "Lawyer registration requires barNumber, lawFirm and yearsOfExperience",
-        });
+      const rate = hourly_rate !== undefined && hourly_rate !== null && hourly_rate !== ""
+        ? Number(hourly_rate)
+        : 0;
+
+      if (!Number.isFinite(rate) || rate < 0) {
+        return res.status(400).json({ message: "Invalid hourly rate" });
       }
+
+      const verified = Number(is_verified || 0) ? 1 : 0;
 
       await pool.query(
-        `INSERT INTO lawyers 
-          (user_id, bar_number, law_firm, specializations, years_of_experience, license_document)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `
+        INSERT INTO lawyers
+          (lawyer_id, specialization, experience_years, hourly_rate, bio, license_document, is_verified)
+        VALUES
+          (?, ?, ?, ?, ?, ?, ?)
+        `,
         [
           userId,
-          barNumber,
-          lawFirm,
-          specializationsValue,
-          yearsOfExperience,
+          spec,
+          expYears,
+          rate,
+          bio || null,
           licenseDocumentPath,
+          verified,
         ]
       );
     }
 
-    // Generate JWT token for new user
     const token = signToken({ user_id: userId, role: effectiveRole });
 
     return res.json({
       user_id: userId,
       full_name: fullName,
-      email,
-      phone,
+      email: cleanEmail,
+      phone: phone || null,
       role: effectiveRole,
       token,
     });
@@ -119,31 +146,36 @@ export const register = async (req, res) => {
 };
 
 export const login = async (req, res) => {
-  const { email, password } = req.body;
-  console.log(req.body);
   try {
+    const { email, password } = req.body;
+
+    const cleanEmail = String(email || "").trim().toLowerCase();
+    if (!cleanEmail || !password) {
+      return res.status(400).json({ error: "Email and password are required" });
+    }
+
     const [rows] = await pool.query(
       "SELECT user_id, password, role, full_name, phone FROM users WHERE email = ?",
-      [email]
+      [cleanEmail]
     );
-    if (rows.length == 0)
-      return res.status(400).json({ error: "Invalid credentials" });
+
+    if (!rows.length) return res.status(400).json({ error: "Invalid credentials" });
 
     const user = rows[0];
     const match = await bcrypt.compare(password, user.password);
-    if (!match)
-      return res.status(400).json({ error: "Invalid credentials" });
+    if (!match) return res.status(400).json({ error: "Invalid credentials" });
 
     const token = signToken({ user_id: user.user_id, role: user.role });
-    res.json({
+
+    return res.json({
       user_id: user.user_id,
       full_name: user.full_name,
-      email,
+      email: cleanEmail,
       phone: user.phone,
       role: user.role,
       token,
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 };
