@@ -25,3 +25,26 @@ export const authorizeAdmin = (req, res, next) => {
   }
   next();
 };
+
+export const authorizeClient = (req, res, next) => {
+  if (req.user.role !== "client")
+    return res.status(403).json({ error: "Client access only" });
+  next();
+};
+
+export const authorizeLawyer = (req, res, next) => {
+  if (req.user?.role === "lawyer") return next();
+  return res.status(403).json({ error: "Lawyer access only" });
+};
+
+// If you need cross-access checks later:
+export const canAccessUserId = (user, id) =>
+  user?.role === "admin" || Number(user?.user_id) === Number(id);
+
+
+export const canAccessLawyerId = (reqUser, lawyerId) => {
+  if (!reqUser?.user_id) return false;
+  if (reqUser.role === "admin") return true;
+  if (reqUser.role === "lawyer" && Number(reqUser.user_id) === Number(lawyerId)) return true;
+  return false;
+};

@@ -8,6 +8,9 @@ import lawyersRoutes from "./src/routes/lawyersRoutes.js";
 import appointmentsRoutes from "./src/routes/appointmentsRoutes.js";
 import messagesRoutes from "./src/routes/messagesRoutes.js";
 import notificationsRoutes from "./src/routes/notificationsRoutes.js";
+import adminRoutes from "./src/routes/adminRoutes.js";
+import clientRoutes from "./src/routes/clientRoutes.js";
+
 
 
 dotenv.config();
@@ -17,6 +20,8 @@ app.use(morgan('dev'));
 app.use(cors());
 
 app.use('/uploads', express.static('uploads'));
+// app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
+
 
 
 // Mount routes
@@ -26,6 +31,10 @@ app.use("/api/lawyers", lawyersRoutes);
 app.use("/api/appointments", appointmentsRoutes);
 app.use("/api/appointments", messagesRoutes);
 app.use("/api/notifications", notificationsRoutes);
+
+app.use("/api/admin", adminRoutes )
+app.use("/api/clients", clientRoutes);
+
 
 
 

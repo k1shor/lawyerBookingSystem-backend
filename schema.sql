@@ -118,3 +118,50 @@ CREATE INDEX idx_appt_lawyer ON appointments(lawyer_id);
 CREATE INDEX idx_appt_slot ON appointments(lawyer_id, appointment_date, appointment_time, status);
 CREATE INDEX idx_msg_appt ON appointment_messages(appointment_id);
 CREATE INDEX idx_notif_user ON notifications(user_id, is_read);
+
+ALTER TABLE users
+ADD COLUMN is_verified TINYINT(1) DEFAULT 0 AFTER role;
+
+
+/* ================= CLIENT PROFILE ================= */
+ALTER TABLE users
+ADD COLUMN address VARCHAR(255),
+ADD COLUMN city VARCHAR(120),
+ADD COLUMN state VARCHAR(120),
+ADD COLUMN zip_code VARCHAR(20);
+
+/* ================= CASES ================= */
+CREATE TABLE cases (
+  case_id INT AUTO_INCREMENT PRIMARY KEY,
+  client_id INT NOT NULL,
+  lawyer_id INT,
+  title VARCHAR(255),
+  case_type VARCHAR(120),
+  status VARCHAR(50) DEFAULT 'active',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (client_id) REFERENCES users(user_id),
+  FOREIGN KEY (lawyer_id) REFERENCES users(user_id)
+);
+
+/* ================= DOCUMENTS ================= */
+CREATE TABLE client_documents (
+  document_id INT AUTO_INCREMENT PRIMARY KEY,
+  client_id INT NOT NULL,
+  name VARCHAR(255),
+  file_path VARCHAR(255),
+  file_size VARCHAR(50),
+  doc_type VARCHAR(120),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (client_id) REFERENCES users(user_id)
+);
+
+/* ================= BILLING ================= */
+CREATE TABLE billing (
+  billing_id INT AUTO_INCREMENT PRIMARY KEY,
+  client_id INT,
+  amount DECIMAL(10,2),
+  status VARCHAR(50) DEFAULT 'paid',
+  billing_month VARCHAR(20),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (client_id) REFERENCES users(user_id)
+);
