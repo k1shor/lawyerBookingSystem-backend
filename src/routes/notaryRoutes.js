@@ -10,6 +10,7 @@ import {
   getNotaryById,
   notarizeRequest,
   verifyNotaryFinal,
+  claimNotaryRequest
 } from "../controllers/notaryController.js";
 
 const router = express.Router();
@@ -44,5 +45,7 @@ router.put(
 
 /* CLIENT: verify final */
 router.post("/:id/verify", authorizeRoles("client"), verifyNotaryFinal);
+/* LAWYER: claim */
+router.post("/:id/claim", authorizeRoles("lawyer"), claimNotaryRequest);
 
 export default router;

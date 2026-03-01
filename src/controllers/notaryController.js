@@ -350,3 +350,85 @@ export const verifyNotaryFinal = async (req, res) => {
     res.status(500).json({ error: "Failed to verify notarized document" });
   }
 };
+
+/* =========================
+   LAWYER: CLAIM REQUEST
+   POST /api/notary/:id/claim
+   - assigns lawyer_id
+   - sets status='in_review'
+========================= */
+export const claimNotaryRequest = async (req, res) => {
+  try {
+    const uid = mustAuth(req, res);
+    if (!uid) return;
+
+    if (roleOf(req) !== "lawyer") {
+      return res.status(403).json({ error: "Lawyer access only" });
+    }
+
+    const notaryId = Number(req.params.id);
+    if (!notaryId) return res.status(400).json({ error: "Invalid notary id" });
+
+    const [rows] = await pool.query(
+      `
+      SELECT *
+      FROM notary_requests
+      WHERE notary_id=?
+      LIMIT 1
+      `,
+      [notaryId]
+    );
+
+    if (!rows.length) return res.status(404).json({ error: "Notary request not found" });
+    const item = rows[0];
+
+    // ✅ must be paid before claiming
+    if (String(item.payment_status || "").toLowerCase() !== "paid") {
+      return res.status(400).json({ error: "Payment not completed for this request" });
+    }
+
+    const status = String(item.status || "").toLowerCase();
+    if (["verified"].includes(status)) {
+      return res.status(400).json({ error: "This request is already verified" });
+    }
+
+    // ✅ already claimed by someone else?
+    if (item.lawyer_id && Number(item.lawyer_id) !== Number(uid)) {
+      return res.status(409).json({ error: "This request is already claimed by another lawyer" });
+    }
+
+    // If already claimed by same lawyer, keep it idempotent
+    await pool.query(
+      `
+      UPDATE notary_requests
+      SET
+        lawyer_id = ?,
+        status = 'in_review'
+      WHERE notary_id = ?
+      `,
+      [uid, notaryId]
+    );
+
+    const [updated] = await pool.query(
+      `
+      SELECT
+        n.*,
+        c.full_name AS client_name,
+        c.email AS client_email,
+        c.phone AS client_phone,
+        lw.full_name AS lawyer_name
+      FROM notary_requests n
+      JOIN users c ON c.user_id = n.client_id
+      LEFT JOIN users lw ON lw.user_id = n.lawyer_id
+      WHERE n.notary_id=?
+      LIMIT 1
+      `,
+      [notaryId]
+    );
+
+    res.json({ success: true, item: updated[0] });
+  } catch (e) {
+    console.error("claimNotaryRequest error:", e);
+    res.status(500).json({ error: "Failed to claim notary request" });
+  }
+};
