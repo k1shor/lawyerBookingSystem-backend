@@ -12,7 +12,7 @@ DROP TABLE IF EXISTS users;
 
 SET FOREIGN_KEY_CHECKS = 1;
 
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
   user_id INT AUTO_INCREMENT PRIMARY KEY,
   full_name VARCHAR(120) NOT NULL,
   email VARCHAR(120) NOT NULL UNIQUE,
@@ -22,7 +22,7 @@ CREATE TABLE users (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE lawyers (
+CREATE TABLE IF NOT EXISTS lawyers (
   lawyer_id INT PRIMARY KEY,
   specialization VARCHAR(120),
   experience_years INT DEFAULT 0,
@@ -37,7 +37,7 @@ CREATE TABLE lawyers (
     ON DELETE CASCADE
 );
 
-CREATE TABLE appointments (
+CREATE TABLE IF NOT EXISTS appointments (
   appointment_id INT AUTO_INCREMENT PRIMARY KEY,
   client_id INT NOT NULL,
   lawyer_id INT NOT NULL,
@@ -73,7 +73,7 @@ CREATE TABLE appointments (
     ON DELETE CASCADE
 );
 
-CREATE TABLE appointment_messages (
+CREATE TABLE IF NOT EXISTS appointment_messages (
   message_id INT AUTO_INCREMENT PRIMARY KEY,
   appointment_id INT NOT NULL,
   sender_id INT NOT NULL,
@@ -92,7 +92,7 @@ CREATE TABLE appointment_messages (
     ON DELETE CASCADE
 );
 
-CREATE TABLE notifications (
+CREATE TABLE IF NOT EXISTS notifications (
   notification_id INT AUTO_INCREMENT PRIMARY KEY,
   user_id INT NOT NULL,
   appointment_id INT NULL,
@@ -131,7 +131,7 @@ ADD COLUMN state VARCHAR(120),
 ADD COLUMN zip_code VARCHAR(20);
 
 /* ================= CASES ================= */
-CREATE TABLE cases (
+CREATE TABLE IF NOT EXISTS cases (
   case_id INT AUTO_INCREMENT PRIMARY KEY,
   client_id INT NOT NULL,
   lawyer_id INT,
@@ -144,7 +144,7 @@ CREATE TABLE cases (
 );
 
 /* ================= DOCUMENTS ================= */
-CREATE TABLE client_documents (
+CREATE TABLE IF NOT EXISTS client_documents (
   document_id INT AUTO_INCREMENT PRIMARY KEY,
   client_id INT NOT NULL,
   name VARCHAR(255),
@@ -156,7 +156,7 @@ CREATE TABLE client_documents (
 );
 
 /* ================= BILLING ================= */
-CREATE TABLE billing (
+CREATE TABLE IF NOT EXISTS  billing (
   billing_id INT AUTO_INCREMENT PRIMARY KEY,
   client_id INT,
   amount DECIMAL(10,2),
@@ -164,4 +164,35 @@ CREATE TABLE billing (
   billing_month VARCHAR(20),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (client_id) REFERENCES users(user_id)
+);
+
+CREATE TABLE IF NOT EXISTS notary_requests (
+  notary_id INT AUTO_INCREMENT PRIMARY KEY,
+
+  title VARCHAR(200) NOT NULL,
+  doc_type VARCHAR(100) NOT NULL,
+  urgency ENUM('normal','urgent') NOT NULL DEFAULT 'normal',
+
+  client_id INT NOT NULL,
+  lawyer_id INT NULL,
+
+  status ENUM('draft','submitted','paid','in_review','notarized','verified','rejected')
+    NOT NULL DEFAULT 'submitted',
+
+  payment_status ENUM('unpaid','paid','refunded') NOT NULL DEFAULT 'unpaid',
+  amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  payment_ref VARCHAR(100) NULL,
+
+  client_document_path VARCHAR(255) NOT NULL,
+  notarized_document_path VARCHAR(255) NULL,
+
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+  INDEX idx_client_id (client_id),
+  INDEX idx_lawyer_id (lawyer_id),
+  INDEX idx_status (status),
+
+  CONSTRAINT fk_notary_client FOREIGN KEY (client_id) REFERENCES users(user_id) ON DELETE CASCADE,
+  CONSTRAINT fk_notary_lawyer FOREIGN KEY (lawyer_id) REFERENCES users(user_id) ON DELETE SET NULL
 );
