@@ -19,11 +19,11 @@ router.use(authenticate, authorizeAdmin);
 /* USERS */
 router.get("/users", getAllUsers);
 router.get("/admins", getAllAdmins);
-router.put("/users/verify/:id", verifyUser);
+router.put("/users/:id/verify", verifyUser);
 
 /* LAWYERS */
 router.get("/lawyers", getAllLawyers);
-router.put("/lawyers/verify/:id", verifyLawyer);
+router.put("/lawyers/:id/verify", verifyLawyer);
 
 /* APPOINTMENTS */
 router.get("/appointments", getAllAppointments);
