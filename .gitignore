@@ -2,3 +2,7 @@
 node_modules
  
  uploads
+ uploads/*
+
+ /uploads/notary
+ 
