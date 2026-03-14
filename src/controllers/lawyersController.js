@@ -105,14 +105,19 @@ export const getMyLawyerProfile = async (req, res) => {
     const userId = mustBeLawyer(req, res);
     if (!userId) return;
 
-    const [rows] = await pool.query(
+    // const userId = await req.params.id
+    // if (!userId) return;
+    console.log(userId)
+
+    // profile
+    const [lawyerRows] = await pool.query(
       `
       SELECT 
         u.user_id AS lawyer_id,
         u.full_name,
         u.email,
         u.phone,
-        u.created_at AS user_created_at,
+        u.created_at,
         u.is_verified AS user_verified,
 
         l.specialization,
@@ -120,23 +125,160 @@ export const getMyLawyerProfile = async (req, res) => {
         l.hourly_rate,
         l.bio,
         l.license_document,
-        l.is_verified AS lawyer_verified,
-        l.created_at AS lawyer_created_at
+        l.is_verified AS lawyer_verified
       FROM users u
       INNER JOIN lawyers l ON l.lawyer_id = u.user_id
-      WHERE u.user_id = ?
+      WHERE l.lawyer_id=? AND u.role='lawyer'
       LIMIT 1
       `,
       [userId]
     );
 
-    if (!rows.length) return res.status(404).json({ error: "Lawyer profile not found" });
+    console.log(lawyerRows)
 
-    res.json(rows[0]);
+    if (!lawyerRows.length) return res.status(400).json({ error: "Lawyer profile not found" });
+    const lawyer = lawyerRows[0];
+
+    // appointments
+    const [appointments] = await pool.query(
+      `
+      SELECT 
+        a.appointment_id,
+        a.appointment_date,
+        a.appointment_time,
+        a.subject,
+        a.status,
+        a.proposed_fee,
+        a.offered_fee,
+        a.final_fee,
+        a.negotiation_note,
+        a.created_at,
+        c.full_name AS client_name,
+        c.user_id AS client_id
+      FROM appointments a
+      INNER JOIN users c ON c.user_id = a.client_id
+      WHERE a.lawyer_id=?
+      ORDER BY a.created_at DESC
+      `,
+      [userId]
+    );
+
+    // cases
+    const [cases] = await pool.query(
+      `
+      SELECT 
+        cs.case_id,
+        cs.title,
+        cs.case_type,
+        cs.status,
+        cs.created_at,
+        c.full_name AS client_name,
+        c.user_id AS client_id
+      FROM cases cs
+      INNER JOIN users c ON c.user_id = cs.client_id
+      WHERE cs.lawyer_id=?
+      ORDER BY cs.created_at DESC
+      `,
+      [userId]
+    );
+
+    // documents (client docs for my clients)
+    const [documents] = await pool.query(
+      `
+      SELECT 
+        d.document_id,
+        d.name,
+        d.file_path,
+        d.file_size,
+        d.doc_type,
+        d.created_at,
+        c.full_name AS client_name,
+        c.user_id AS client_id
+      FROM client_documents d
+      INNER JOIN users c ON c.user_id = d.client_id
+      WHERE d.client_id IN (
+        SELECT DISTINCT client_id FROM appointments WHERE lawyer_id=?
+      )
+      ORDER BY d.created_at DESC
+      `,
+      [userId]
+    );
+
+    // messages
+    const [messages] = await pool.query(
+      `
+      SELECT 
+        m.message_id,
+        m.appointment_id,
+        m.sender_id,
+        m.sender_role,
+        m.message,
+        m.created_at,
+        u.full_name AS sender_name
+      FROM appointment_messages m
+      INNER JOIN users u ON u.user_id = m.sender_id
+      WHERE m.appointment_id IN (
+        SELECT appointment_id FROM appointments WHERE lawyer_id=?
+      )
+      ORDER BY m.created_at DESC
+      `,
+      [userId]
+    );
+
+    const stats = {
+      totalAppointments: appointments.length,
+      upcomingAppointments: appointments.filter((a) =>
+        !["completed", "cancelled", "rejected"].includes(String(a.status).toLowerCase())
+      ).length,
+      totalCases: cases.length,
+      activeCases: cases.filter((c) => String(c.status).toLowerCase() === "active").length,
+      totalDocs: documents.length,
+      totalMessages: messages.length,
+    };
+
+    res.json({ lawyer, stats, appointments, cases, documents, messages });
   } catch (e) {
-    console.error("getMyLawyerProfile error:", e);
-    res.status(500).json({ error: "Failed to fetch my lawyer profile" });
+    console.error("getMyLawyerDashboardBundle error:", e);
+    res.status(500).json({ error: "Failed to load lawyer dashboard" });
   }
+
+
+  // try {
+  //   const userId = mustBeLawyer(req, res);
+  //   if (!userId) return;
+
+  //   const [rows] = await pool.query(
+  //     `
+  //     SELECT 
+  //       u.user_id AS lawyer_id,
+  //       u.full_name,
+  //       u.email,
+  //       u.phone,
+  //       u.created_at AS user_created_at,
+  //       u.is_verified AS user_verified,
+
+  //       l.specialization,
+  //       l.experience_years,
+  //       l.hourly_rate,
+  //       l.bio,
+  //       l.license_document,
+  //       l.is_verified AS lawyer_verified,
+  //       l.created_at AS lawyer_created_at
+  //     FROM users u
+  //     INNER JOIN lawyers l ON l.lawyer_id = u.user_id
+  //     WHERE u.user_id = ?
+  //     LIMIT 1
+  //     `,
+  //     [userId]
+  //   );
+
+  //   if (!rows.length) return res.status(404).json({ error: "Lawyer profile not found" });
+
+  //   res.json(rows[0]);
+  // } catch (e) {
+  //   console.error("getMyLawyerProfile error:", e);
+  //   res.status(500).json({ error: "Failed to fetch my lawyer profile" });
+  // }
 };
 
 /* =========================
