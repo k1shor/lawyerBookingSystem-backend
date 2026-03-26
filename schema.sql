@@ -54,6 +54,8 @@ CREATE TABLE IF NOT EXISTS appointments (
   status ENUM(
     'pending',
     'negotiating',
+    'awaiting_payment',
+    'paid',
     'approved',
     'rejected',
     'cancelled',
@@ -195,4 +197,32 @@ CREATE TABLE IF NOT EXISTS notary_requests (
 
   CONSTRAINT fk_notary_client FOREIGN KEY (client_id) REFERENCES users(user_id) ON DELETE CASCADE,
   CONSTRAINT fk_notary_lawyer FOREIGN KEY (lawyer_id) REFERENCES users(user_id) ON DELETE SET NULL
+);
+
+DROP TABLE IF EXISTS payments;
+
+CREATE TABLE payments (
+  payment_id INT AUTO_INCREMENT PRIMARY KEY,
+
+  appointment_id INT NULL,
+  notary_id INT NULL,
+
+  amount DECIMAL(10,2) NOT NULL,
+
+  status ENUM('pending','paid','failed') DEFAULT 'pending',
+
+  esewa_pid VARCHAR(255),
+  esewa_ref_id VARCHAR(255),
+
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  CONSTRAINT fk_payment_appt
+    FOREIGN KEY (appointment_id)
+    REFERENCES appointments(appointment_id)
+    ON DELETE CASCADE,
+
+  CONSTRAINT fk_payment_notary
+    FOREIGN KEY (notary_id)
+    REFERENCES notary_requests(notary_id)
+    ON DELETE CASCADE
 );

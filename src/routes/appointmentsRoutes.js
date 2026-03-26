@@ -6,7 +6,9 @@ import {
   lawyerAccept,
   lawyerReject,
   clientCounterOffer,
-  clientAcceptOffer
+  clientAcceptOffer,
+  getAppointmentById,
+  makePayment
 } from "../controllers/appointmentsController.js";
 import { authenticate } from "../middlewares/auth.js";
 
@@ -21,5 +23,9 @@ router.patch("/:id/reject", authenticate, lawyerReject);
 
 router.patch("/:id/counter", authenticate, clientCounterOffer);
 router.patch("/:id/confirm", authenticate, clientAcceptOffer);
+
+router.get('/:id', getAppointmentById)
+
+router.post("/payments/pay", makePayment);
 
 export default router;

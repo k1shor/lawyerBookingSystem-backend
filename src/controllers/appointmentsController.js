@@ -302,7 +302,7 @@ export const lawyerAccept = async (req, res) => {
     await pool.query(
       `
       UPDATE appointments
-      SET final_fee = ?, status = 'approved'
+      SET final_fee = ?, status = 'awaiting_payment'
       WHERE appointment_id = ?
       `,
       [Number(finalFee || 0), Number(id)]
@@ -318,14 +318,90 @@ export const lawyerAccept = async (req, res) => {
     await notifyUser(
       appt.client_id,
       id,
-      "APPT_ACCEPTED",
-      "Appointment accepted",
-      `Your appointment "${appt.subject}" was accepted`
+      "PAYMENT_REQUIRED",
+      "Payment required",
+      `Please complete payment for "${appt.subject}" to confirm appointment`
     );
+    await pool.query(
+      `
+  INSERT INTO payments (appointment_id, amount, status)
+  VALUES (?, ?, 'pending')
+  `,
+      [id, finalFee]
+    );
+
 
     res.json({ message: "Appointment accepted", final_fee: finalFee });
   } catch (e) {
-    res.status(500).json({ error: "Failed to accept appointment" });
+    res.status(500).json({ error: e.message });
+  }
+};
+
+export const makePayment = async (req, res) => {
+  try {
+    const userId = req.user.user_id;
+
+    if (req.user.role !== "client") {
+      return res.status(403).json({ error: "Only clients can pay" });
+    }
+
+    const { appointment_id, payment_method } = req.body;
+
+    const appt = await getAppt(appointment_id);
+    if (!appt) return res.status(404).json({ error: "Appointment not found" });
+
+    if (!isOwnerClient(userId, appt)) {
+      return res.status(403).json({ error: "Not your appointment" });
+    }
+
+    if (appt.status !== "awaiting_payment") {
+      return res.status(400).json({ error: "Payment not required" });
+    }
+
+    const [payments] = await pool.query(
+      `SELECT * FROM payments WHERE appointment_id = ? AND status = 'pending'`,
+      [appointment_id]
+    );
+
+    if (!payments.length) {
+      return res.status(400).json({ error: "No pending payment found" });
+    }
+
+    const payment = payments[0];
+
+    // Simulate payment success
+    await pool.query(
+      `
+      UPDATE payments
+      SET status = 'paid',
+          payment_method = ?,
+          transaction_ref = ?
+      WHERE payment_id = ?
+      `,
+      [
+        payment_method || "manual",
+        `TXN-${Date.now()}`,
+        payment.payment_id,
+      ]
+    );
+
+    // Update appointment
+    await pool.query(
+      `UPDATE appointments SET status = 'paid' WHERE appointment_id = ?`,
+      [appointment_id]
+    );
+
+    await notifyUser(
+      appt.lawyer_id,
+      appointment_id,
+      "PAYMENT_COMPLETED",
+      "Payment received",
+      `Client has completed payment`
+    );
+
+    res.json({ message: "Payment successful" });
+  } catch (e) {
+    res.status(500).json({ error: "Payment failed" });
   }
 };
 
@@ -489,5 +565,55 @@ export const clientAcceptOffer = async (req, res) => {
     });
   } catch (e) {
     res.status(500).json({ error: "Failed to accept offer" });
+  }
+};
+
+export const getAppointmentById = async (req, res) => {
+  try {
+    const id = req.params.id;
+
+    const [rows] = await pool.query(
+      `
+      SELECT
+        a.*,
+        cu.full_name AS client_name,
+        cu.email AS client_email,
+        lu.full_name AS lawyer_name,
+        lu.email AS lawyer_email,
+        l.specialization,
+        l.experience_years,
+        l.hourly_rate
+      FROM appointments a
+      INNER JOIN users cu ON cu.user_id = a.client_id
+      INNER JOIN users lu ON lu.user_id = a.lawyer_id
+      INNER JOIN lawyers l ON l.lawyer_id = a.lawyer_id
+      WHERE a.appointment_id = ?
+      `,
+      [Number(id)]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ error: "Appointment not found" });
+    }
+
+    const appt = rows[0];
+
+    res.json({
+      appointment: {
+        ...appt,
+        client: {
+          name: appt.client_name,
+          email: appt.client_email,
+        },
+        lawyer: {
+          name: appt.lawyer_name,
+          email: appt.lawyer_email,
+          specialization: appt.specialization,
+          experience: appt.experience_years,
+        },
+      },
+    });
+  } catch (e) {
+    res.status(500).json({ error: "Failed to fetch appointment" });
   }
 };
