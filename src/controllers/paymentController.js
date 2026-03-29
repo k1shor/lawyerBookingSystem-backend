@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import pool from "../config/db.js";
+import axios from "axios";
 
 const ESEWA_PRODUCT_CODE = process.env.ESEWA_PRODUCT_CODE;
 const ESEWA_SECRET = process.env.ESEWA_SECRET;
@@ -51,7 +52,7 @@ export const initiateEsewaPayment = async (req, res) => {
       transaction_uuid,
       product_code: ESEWA_PRODUCT_CODE,
       signature,
-      success_url: `${process.env.APP_URL}/api/payment/esewa/success`,
+      success_url: `http://localhost:5000/api/payment/appointment/esewa/success`,
       failure_url: `${process.env.APP_URL}/payment/esewa-failure`,
     });
 
@@ -124,18 +125,18 @@ export const verifyEsewaPayment = async (req, res) => {
 ========================= */
 export const initiateAppointmentEsewaPayment = async (req, res) => {
   try {
-    
+
     const { appointment_id } = req.body;
-    
+
     const [rows] = await pool.query(
       `SELECT * FROM appointments WHERE appointment_id=?`,
       [appointment_id]
     );
-    
+
     if (!rows.length) {
       return res.status(400).json({ error: "Appointment not found" });
     }
-    
+
     const appt = rows[0];
 
     if (appt.status !== "awaiting_payment") {
@@ -172,13 +173,23 @@ export const initiateAppointmentEsewaPayment = async (req, res) => {
       [appt.appointment_id, amount, transaction_uuid]
     );
 
+     await pool.query(
+      `
+      UPDATE appointments 
+      SET status='paid'
+      WHERE appointment_id = ?
+      `,
+      [appt.appointment_id]
+    );
+
+
     res.json({
       amount,
       transaction_uuid,
       product_code: ESEWA_PRODUCT_CODE,
       signature,
-      success_url: `${process.env.APP_URL}/api/payment/esewa/success`,
-      failure_url: `${process.env.APP_URL}/payment/esewa-failure`,
+      success_url: `${process.env.APP_URL}/profile?payment=success`,
+      failure_url: `${process.env.APP_URL}/profile?payment=failed`,
     });
 
   } catch (err) {
@@ -191,54 +202,78 @@ export const initiateAppointmentEsewaPayment = async (req, res) => {
    VERIFY PAYMENT (APPOINTMENT)
 ========================= */
 export const verifyAppointmentEsewaPayment = async (req, res) => {
+
+
+
+
   try {
-    const { refId, oid } = req.query;
+    console.log("🔥 eSewa Callback Hit:", req.query);
 
-    if (!refId || !oid) {
-      return res.status(400).send("Invalid transaction");
+    const { transaction_uuid, total_amount } = req.query;
+
+    if (!transaction_uuid || !total_amount) {
+      console.log("❌ Missing params");
+      return res.redirect(`${process.env.APP_URL}/profile?payment=error`);
     }
 
-    // Extract appointment_id
-    const parts = oid.split("_");
-    const appointment_id = parts[1];
+    // ⚠️ IMPORTANT: ensure number format
+    const amount = Number(total_amount);
 
-    // Find payment
-    const [payments] = await pool.query(
+    const verificationUrl = `https://rc-epay.esewa.com.np/api/epay/transaction/status/?product_code=${process.env.ESEWA_PRODUCT_CODE}&total_amount=${amount}&transaction_uuid=${transaction_uuid}`;
+
+    console.log("🔍 Verifying URL:", verificationUrl);
+
+    const response = await axios.get(verificationUrl);
+
+    console.log("🧾 eSewa Response:", response.data);
+
+    // ✅ ACCEPT BOTH COMPLETE & SUCCESS
+    if (!["COMPLETE", "SUCCESS"].includes(response.data.status)) {
+      console.log("❌ Payment NOT completed:", response.data.status);
+      return res.redirect(`${process.env.APP_URL}/profile?payment=failed`);
+    }
+
+    // 🔍 DEBUG: check payment exists
+    const [check] = await pool.query(
       `SELECT * FROM payments WHERE esewa_pid=?`,
-      [oid]
+      [transaction_uuid]
     );
 
-    if (!payments.length) {
-      return res.status(400).send("Payment not found");
+    console.log("💾 Existing Payment:", check);
+
+    if (!check.length) {
+      console.log("❌ Payment record not found in DB");
+      return res.redirect(`${process.env.APP_URL}/profile?payment=error`);
     }
 
-    const payment = payments[0];
-
-    // ✅ Update payment
-    await pool.query(
+    // ✅ UPDATE PAYMENT
+    const [paymentUpdate] = await pool.query(
       `
-      UPDATE payments
-      SET status='paid',
-          esewa_ref_id=?
-      WHERE payment_id=?
+      UPDATE payments 
+      SET status='completed', payment_status='paid'
+      WHERE esewa_pid=? AND payment_status!='paid'
       `,
-      [refId, payment.payment_id]
+      [transaction_uuid]
     );
 
-    // ✅ Update appointment
-    await pool.query(
+    console.log("✅ Payment Update Result:", paymentUpdate);
+
+    // ✅ UPDATE APPOINTMENT
+    const [apptUpdate] = await pool.query(
       `
-      UPDATE appointments
+      UPDATE appointments 
       SET status='paid'
-      WHERE appointment_id=?
+      WHERE appointment_id = ?
       `,
-      [appointment_id]
+      [check[0].appointment_id]
     );
 
-    return res.redirect(`/profile`);
+    console.log("✅ Appointment Update Result:", apptUpdate);
 
-  } catch (e) {
-    console.error(e);
-    res.status(500).send("Verification failed");
+    return res.redirect(`${process.env.APP_URL}/profile?payment=success`);
+
+  } catch (err) {
+    console.error("❌ VERIFY ERROR:", err.message);
+    return res.redirect(`${process.env.APP_URL}/profile?payment=error`);
   }
 };
