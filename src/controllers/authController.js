@@ -2,6 +2,9 @@
 import pool from "../config/db.js";
 import bcrypt from "bcryptjs";
 import { signToken } from "../utils/jwtUtil.js";
+import crypto from "crypto";
+import { sendResetEmail } from "../utils/mailer.js";
+
 
 const safeParseJson = (value) => {
   try {
@@ -177,5 +180,96 @@ export const login = async (req, res) => {
     });
   } catch (err) {
     return res.status(500).json({ error: err.message });
+  }
+};
+
+
+
+export const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ error: "Email is required" });
+    }
+
+    const [users] = await pool.query(
+      "SELECT user_id FROM users WHERE email=?",
+      [email]
+    );
+
+    if (!users.length) {
+      return res.status(400).json({
+        error: "Email not registered",
+      });
+    }
+
+    const user = users[0];
+
+    const resetToken = crypto.randomBytes(32).toString("hex");
+    const expiry = Date.now() + 15 * 60 * 1000;
+
+    await pool.query(
+      "UPDATE users SET reset_token=?, reset_token_expiry=? WHERE user_id=?",
+      [resetToken, expiry, user.user_id]
+    );
+
+    const resetLink = `${process.env.APP_URL}/reset-password/${resetToken}`;
+
+    await sendResetEmail(email, resetLink);
+
+    res.json({
+      message: "Password reset link has been sent to your email",
+    });
+
+  } catch (error) {
+    res.status(500).json({ error: "Server error" });
+  }
+};
+
+
+/**
+ * RESET PASSWORD
+ */
+export const resetPassword = async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { password } = req.body;
+
+    if (!password) {
+      return res.status(400).json({ message: "Password is required" });
+    }
+
+    const [users] = await pool.query(
+      "SELECT * FROM users WHERE reset_token=?",
+      [token]
+    );
+
+    if (!users.length) {
+      return res.status(400).json({ message: "Invalid token" });
+    }
+
+    const user = users[0];
+
+    // Check expiry
+    if (Date.now() > user.reset_token_expiry) {
+      return res.status(400).json({ message: "Token expired" });
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    await pool.query(
+      `UPDATE users 
+       SET password=?, reset_token=NULL, reset_token_expiry=NULL 
+       WHERE user_id=?`,
+      [hashedPassword, user.user_id]
+    );
+
+    res.json({ message: "Password reset successful" });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Server error" });
   }
 };

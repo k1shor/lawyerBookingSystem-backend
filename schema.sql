@@ -226,3 +226,7 @@ CREATE TABLE payments (
     REFERENCES notary_requests(notary_id)
     ON DELETE CASCADE
 );
+
+ALTER TABLE users 
+ADD COLUMN reset_token VARCHAR(255),
+ADD COLUMN reset_token_expiry BIGINT;
