@@ -35,3 +35,24 @@ export const sendResetEmail = async (email, resetLink) => {
 
   console.log("📧 Mailtrap Message ID:", info.messageId);
 };
+
+export const sendVerificationEmail = async (email, verifyLink) => {
+  await transporter.sendMail({
+    from: '"Dev System 🔐" <no-reply@yourapp.com>',
+    to: email,
+    subject: "Verify Your Email ✅",
+    html: `
+      <div style="font-family:Arial;max-width:600px;margin:auto;">
+        <h2 style="color:#142768;">Verify Your Account</h2>
+        <p>Click below to verify your email:</p>
+
+        <a href="${verifyLink}" 
+           style="display:inline-block;padding:12px 20px;background:#142768;color:#fff;border-radius:8px;text-decoration:none;">
+          Verify Email
+        </a>
+
+        <p style="margin-top:20px;">If you didn’t register, ignore this.</p>
+      </div>
+    `,
+  });
+};

@@ -1,55 +1,72 @@
 -- ==========================
--- HireLawyer Schema (FINAL)
+-- HireLawyer Schema (CREATE ONLY)
 -- ==========================
 
-SET FOREIGN_KEY_CHECKS = 0;
-
-DROP TABLE IF EXISTS notifications;
-DROP TABLE IF EXISTS appointment_messages;
-DROP TABLE IF EXISTS appointments;
-DROP TABLE IF EXISTS lawyers;
-DROP TABLE IF EXISTS users;
-
-SET FOREIGN_KEY_CHECKS = 1;
-
-CREATE TABLE IF NOT EXISTS users (
+-- ================= USERS =================
+CREATE TABLE users (
   user_id INT AUTO_INCREMENT PRIMARY KEY,
   full_name VARCHAR(120) NOT NULL,
   email VARCHAR(120) NOT NULL UNIQUE,
   phone VARCHAR(30),
   password VARCHAR(255) NOT NULL,
+
   role ENUM('admin','client','lawyer') NOT NULL DEFAULT 'client',
+
+  is_verified TINYINT(1) DEFAULT 0,
+
+  -- profile
+  address VARCHAR(255),
+  city VARCHAR(120),
+  state VARCHAR(120),
+  zip_code VARCHAR(20),
+
+  -- auth
+  reset_token VARCHAR(255),
+  reset_token_expiry BIGINT,
+  verify_token VARCHAR(255),
+
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS lawyers (
+-- ================= LAWYERS =================
+CREATE TABLE lawyers (
   lawyer_id INT PRIMARY KEY,
+
   specialization VARCHAR(120),
   experience_years INT DEFAULT 0,
   hourly_rate DECIMAL(10,2) DEFAULT 0,
   bio TEXT,
   license_document VARCHAR(255),
+
   is_verified TINYINT(1) DEFAULT 0,
+
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
   CONSTRAINT fk_lawyer_user
     FOREIGN KEY (lawyer_id)
     REFERENCES users(user_id)
     ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS appointments (
+-- ================= APPOINTMENTS =================
+CREATE TABLE appointments (
   appointment_id INT AUTO_INCREMENT PRIMARY KEY,
+
   client_id INT NOT NULL,
   lawyer_id INT NOT NULL,
+
   appointment_date DATE NOT NULL,
   appointment_time TIME NOT NULL,
+
   subject VARCHAR(160) NOT NULL,
   details TEXT,
 
-  proposed_fee DECIMAL(10,2) DEFAULT NULL,
-  offered_fee DECIMAL(10,2) DEFAULT NULL,
-  final_fee DECIMAL(10,2) DEFAULT NULL,
-  negotiation_note TEXT DEFAULT NULL,
+  proposed_fee DECIMAL(10,2),
+  offered_fee DECIMAL(10,2),
+  final_fee DECIMAL(10,2),
+
+  negotiation_note TEXT,
+  last_offered_by TEXT,
 
   status ENUM(
     'pending',
@@ -75,12 +92,16 @@ CREATE TABLE IF NOT EXISTS appointments (
     ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS appointment_messages (
+-- ================= APPOINTMENT MESSAGES =================
+CREATE TABLE appointment_messages (
   message_id INT AUTO_INCREMENT PRIMARY KEY,
+
   appointment_id INT NOT NULL,
   sender_id INT NOT NULL,
+
   sender_role ENUM('admin','client','lawyer') NOT NULL,
   message TEXT NOT NULL,
+
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
   CONSTRAINT fk_msg_appt
@@ -94,14 +115,19 @@ CREATE TABLE IF NOT EXISTS appointment_messages (
     ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS notifications (
+-- ================= NOTIFICATIONS =================
+CREATE TABLE notifications (
   notification_id INT AUTO_INCREMENT PRIMARY KEY,
+
   user_id INT NOT NULL,
   appointment_id INT NULL,
+
   type VARCHAR(50) NOT NULL,
   title VARCHAR(160) NOT NULL,
   body VARCHAR(255),
+
   is_read TINYINT(1) DEFAULT 0,
+
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
   CONSTRAINT fk_notif_user
@@ -115,78 +141,83 @@ CREATE TABLE IF NOT EXISTS notifications (
     ON DELETE SET NULL
 );
 
-CREATE INDEX idx_appt_client ON appointments(client_id);
-CREATE INDEX idx_appt_lawyer ON appointments(lawyer_id);
-CREATE INDEX idx_appt_slot ON appointments(lawyer_id, appointment_date, appointment_time, status);
-CREATE INDEX idx_msg_appt ON appointment_messages(appointment_id);
-CREATE INDEX idx_notif_user ON notifications(user_id, is_read);
-
-ALTER TABLE users
-ADD COLUMN is_verified TINYINT(1) DEFAULT 0 AFTER role;
-
-
-/* ================= CLIENT PROFILE ================= */
-ALTER TABLE users
-ADD COLUMN address VARCHAR(255),
-ADD COLUMN city VARCHAR(120),
-ADD COLUMN state VARCHAR(120),
-ADD COLUMN zip_code VARCHAR(20);
-
-/* ================= CASES ================= */
-CREATE TABLE IF NOT EXISTS cases (
+-- ================= CASES =================
+CREATE TABLE cases (
   case_id INT AUTO_INCREMENT PRIMARY KEY,
+
   client_id INT NOT NULL,
   lawyer_id INT,
+
   title VARCHAR(255),
   case_type VARCHAR(120),
   status VARCHAR(50) DEFAULT 'active',
+
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
   FOREIGN KEY (client_id) REFERENCES users(user_id),
   FOREIGN KEY (lawyer_id) REFERENCES users(user_id)
 );
 
-/* ================= DOCUMENTS ================= */
-CREATE TABLE IF NOT EXISTS client_documents (
+-- ================= CLIENT DOCUMENTS =================
+CREATE TABLE client_documents (
   document_id INT AUTO_INCREMENT PRIMARY KEY,
+
   client_id INT NOT NULL,
+
   name VARCHAR(255),
   file_path VARCHAR(255),
   file_size VARCHAR(50),
   doc_type VARCHAR(120),
+
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
   FOREIGN KEY (client_id) REFERENCES users(user_id)
 );
 
-/* ================= BILLING ================= */
-CREATE TABLE IF NOT EXISTS  billing (
+-- ================= BILLING =================
+CREATE TABLE billing (
   billing_id INT AUTO_INCREMENT PRIMARY KEY,
+
   client_id INT,
   amount DECIMAL(10,2),
+
   status VARCHAR(50) DEFAULT 'paid',
   billing_month VARCHAR(20),
+
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
   FOREIGN KEY (client_id) REFERENCES users(user_id)
 );
 
-CREATE TABLE IF NOT EXISTS notary_requests (
+-- ================= NOTARY REQUESTS =================
+CREATE TABLE notary_requests (
   notary_id INT AUTO_INCREMENT PRIMARY KEY,
 
   title VARCHAR(200) NOT NULL,
   doc_type VARCHAR(100) NOT NULL,
-  urgency ENUM('normal','urgent') NOT NULL DEFAULT 'normal',
+
+  urgency ENUM('normal','urgent') DEFAULT 'normal',
 
   client_id INT NOT NULL,
   lawyer_id INT NULL,
 
-  status ENUM('draft','submitted','paid','in_review','notarized','verified','rejected')
-    NOT NULL DEFAULT 'submitted',
+  status ENUM(
+    'draft',
+    'submitted',
+    'paid',
+    'in_review',
+    'notarized',
+    'verified',
+    'rejected'
+  ) DEFAULT 'submitted',
 
-  payment_status ENUM('unpaid','paid','refunded') NOT NULL DEFAULT 'unpaid',
-  amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-  payment_ref VARCHAR(100) NULL,
+  payment_status ENUM('unpaid','paid','refunded') DEFAULT 'unpaid',
+
+  amount DECIMAL(10,2) DEFAULT 0.00,
+  payment_ref VARCHAR(100),
 
   client_document_path VARCHAR(255) NOT NULL,
-  notarized_document_path VARCHAR(255) NULL,
+  notarized_document_path VARCHAR(255),
 
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -195,12 +226,18 @@ CREATE TABLE IF NOT EXISTS notary_requests (
   INDEX idx_lawyer_id (lawyer_id),
   INDEX idx_status (status),
 
-  CONSTRAINT fk_notary_client FOREIGN KEY (client_id) REFERENCES users(user_id) ON DELETE CASCADE,
-  CONSTRAINT fk_notary_lawyer FOREIGN KEY (lawyer_id) REFERENCES users(user_id) ON DELETE SET NULL
+  CONSTRAINT fk_notary_client
+    FOREIGN KEY (client_id)
+    REFERENCES users(user_id)
+    ON DELETE CASCADE,
+
+  CONSTRAINT fk_notary_lawyer
+    FOREIGN KEY (lawyer_id)
+    REFERENCES users(user_id)
+    ON DELETE SET NULL
 );
 
-DROP TABLE IF EXISTS payments;
-
+-- ================= PAYMENTS =================
 CREATE TABLE payments (
   payment_id INT AUTO_INCREMENT PRIMARY KEY,
 
@@ -227,6 +264,11 @@ CREATE TABLE payments (
     ON DELETE CASCADE
 );
 
-ALTER TABLE users 
-ADD COLUMN reset_token VARCHAR(255),
-ADD COLUMN reset_token_expiry BIGINT;
+-- ================= INDEXES =================
+CREATE INDEX idx_appt_client ON appointments(client_id);
+CREATE INDEX idx_appt_lawyer ON appointments(lawyer_id);
+CREATE INDEX idx_appt_slot ON appointments(lawyer_id, appointment_date, appointment_time, status);
+
+CREATE INDEX idx_msg_appt ON appointment_messages(appointment_id);
+
+CREATE INDEX idx_notif_user ON notifications(user_id, is_read);

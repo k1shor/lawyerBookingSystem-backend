@@ -1,6 +1,6 @@
 // routes/authRoutes.js
 import express from "express";
-import { forgotPassword, login, register, resetPassword } from "../controllers/authController.js";
+import { forgotPassword, login, register, resetPassword, verifyEmail } from "../controllers/authController.js";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -36,5 +36,7 @@ router.post("/register", upload.single("licenseDocument"), register);
 router.post("/login", login);
 router.post("/forgot-password", forgotPassword);
 router.post("/reset-password/:token", resetPassword);
+router.get("/verify-email/:token", verifyEmail);
 
 export default router;
+

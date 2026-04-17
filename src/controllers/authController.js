@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { signToken } from "../utils/jwtUtil.js";
 import crypto from "crypto";
 import { sendResetEmail } from "../utils/mailer.js";
+import { sendVerificationEmail } from "../utils/mailer.js";
 
 
 const safeParseJson = (value) => {
@@ -38,6 +39,7 @@ const normalizeSpecialization = (value) => {
   return String(value);
 };
 
+
 export const register = async (req, res) => {
   try {
     const {
@@ -50,7 +52,7 @@ export const register = async (req, res) => {
       role,
       userType,
 
-      // lawyer-related (frontend can send any of these)
+      // lawyer-related
       specialization,
       yearsOfExperience,
       experience_years,
@@ -74,20 +76,32 @@ export const register = async (req, res) => {
       return res.status(400).json({ message: "Full name is required" });
     }
 
-    const [exists] = await pool.query("SELECT user_id FROM users WHERE email = ?", [cleanEmail]);
+    // check existing
+    const [exists] = await pool.query(
+      "SELECT user_id FROM users WHERE email = ?",
+      [cleanEmail]
+    );
+
     if (exists.length) {
       return res.status(400).json({ message: "Email already used" });
     }
 
     const hashed = await bcrypt.hash(password, 10);
 
+    // 🔐 generate verification token
+    const verifyToken = crypto.randomBytes(32).toString("hex");
+
+    // 👇 IMPORTANT: is_verified = 0 initially
     const [result] = await pool.query(
-      "INSERT INTO users (full_name, email, password, phone, role) VALUES (?, ?, ?, ?, ?)",
-      [fullName, cleanEmail, hashed, phone || null, effectiveRole]
+      `INSERT INTO users 
+        (full_name, email, password, phone, role, verify_token, is_verified) 
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [fullName, cleanEmail, hashed, phone || null, effectiveRole, verifyToken, 0]
     );
 
     const userId = result.insertId;
 
+    // ================= LAWYER LOGIC =================
     if (effectiveRole === "lawyer") {
       const licenseDocumentPath = req.file ? req.file.path : null;
 
@@ -103,16 +117,16 @@ export const register = async (req, res) => {
         return res.status(400).json({ message: "Invalid experience years" });
       }
 
-      const rate = hourly_rate !== undefined && hourly_rate !== null && hourly_rate !== ""
-        ? Number(hourly_rate)
-        : 0;
+      const rate =
+        hourly_rate !== undefined && hourly_rate !== null && hourly_rate !== ""
+          ? Number(hourly_rate)
+          : 0;
 
       if (!Number.isFinite(rate) || rate < 0) {
         return res.status(400).json({ message: "Invalid hourly rate" });
       }
 
-      const verified = Number(is_verified || 0) ? 1 : 0;
-
+      // 🔒 lawyer verification should NOT auto-enable
       await pool.query(
         `
         INSERT INTO lawyers
@@ -127,21 +141,23 @@ export const register = async (req, res) => {
           rate,
           bio || null,
           licenseDocumentPath,
-          verified,
+          0, // always 0 initially
         ]
       );
     }
 
-    const token = signToken({ user_id: userId, role: effectiveRole });
+    // ================= EMAIL SEND =================
+    const verifyLink = `${process.env.CLIENT_URL}/verify-email/${verifyToken}`;
 
+    await sendVerificationEmail(cleanEmail, verifyLink);
+
+    // ================= RESPONSE =================
     return res.json({
+      message: "Registration successful. Please verify your email 📧",
       user_id: userId,
-      full_name: fullName,
       email: cleanEmail,
-      phone: phone || null,
-      role: effectiveRole,
-      token,
     });
+
   } catch (err) {
     console.error("Register error:", err);
     return res.status(500).json({ error: err.message });
@@ -167,6 +183,12 @@ export const login = async (req, res) => {
     const user = rows[0];
     const match = await bcrypt.compare(password, user.password);
     if (!match) return res.status(400).json({ error: "Invalid credentials" });
+
+    if (user.is_verified == 1) {
+      return res.status(403).json({
+        error: "Please verify your email before logging in"
+      });
+    }
 
     const token = signToken({ user_id: user.user_id, role: user.role });
 
@@ -271,5 +293,51 @@ export const resetPassword = async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server error" });
+  }
+};
+
+/**
+ * VERIFY EMAIL
+ */
+export const verifyEmail = async (req, res) => {
+  try {
+    const { token } = req.params;
+
+    if (!token) {
+      return res.status(400).json({ message: "Verification token is required" });
+    }
+
+    // 🔍 Find user with this token
+    const [users] = await pool.query(
+      "SELECT user_id, is_verified FROM users WHERE verify_token = ?",
+      [token]
+    );
+
+    if (!users.length) {
+      return res.status(400).json({ message: "Invalid or expired verification token" });
+    }
+
+    const user = users[0];
+
+    // ⚠️ Already verified check
+    if (user.is_verified === 1) {
+      return res.status(400).json({ message: "User already verified" });
+    }
+
+    // ✅ Mark user as verified & remove token
+    await pool.query(
+      `UPDATE users 
+       SET is_verified = 1, verify_token = NULL 
+       WHERE user_id = ?`,
+      [user.user_id]
+    );
+
+    return res.json({
+      message: "Email verified successfully 🎉 You can now login."
+    });
+
+  } catch (error) {
+    console.error("Verify Email Error:", error);
+    return res.status(500).json({ message: "Server error" });
   }
 };

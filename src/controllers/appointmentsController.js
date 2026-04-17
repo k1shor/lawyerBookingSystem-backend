@@ -117,8 +117,8 @@ export const createAppointment = async (req, res) => {
     const [result] = await pool.query(
       `
       INSERT INTO appointments
-      (client_id, lawyer_id, appointment_date, appointment_time, subject, details, proposed_fee, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
+      (client_id, lawyer_id, appointment_date, appointment_time, subject, details, proposed_fee, status, last_offered_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 'client')
       `,
       [
         userId,
@@ -235,7 +235,7 @@ export const lawyerOfferFee = async (req, res) => {
     await pool.query(
       `
       UPDATE appointments
-      SET offered_fee = ?, negotiation_note = ?, status = 'negotiating'
+      SET offered_fee = ?, negotiation_note = ?, status = 'negotiating', last_offered_by = 'lawyer'
       WHERE appointment_id = ?
       `,
       [Number(offered_fee), negotiation_note || null, Number(id)]
@@ -245,7 +245,7 @@ export const lawyerOfferFee = async (req, res) => {
       id,
       userId,
       "lawyer",
-      `Offered fee: $${Number(offered_fee).toFixed(2)}`
+      `Offered fee: Rs.${Number(offered_fee).toFixed(2)}`
     );
 
     await notifyUser(
@@ -253,7 +253,7 @@ export const lawyerOfferFee = async (req, res) => {
       id,
       "FEE_OFFER",
       "Lawyer sent a fee offer",
-      `Offered $${Number(offered_fee).toFixed(2)}`
+      `Offered Rs.${Number(offered_fee).toFixed(2)}`
     );
 
     res.json({ message: "Offer sent" });
@@ -272,6 +272,10 @@ export const lawyerAccept = async (req, res) => {
     const id = req.params.id;
     const appt = await getAppt(id);
     if (!appt) return res.status(404).json({ error: "Appointment not found" });
+
+    if(appt.last_offered_by === "lawyer"){
+      return res.status(400).json({error: "You have made the offer. Wait for the client to accept."})
+    }
 
     if (appt.status === "approved") {
       return res.status(400).json({ error: "Appointment already approved" });
@@ -502,24 +506,20 @@ export const clientCounterOffer = async (req, res) => {
 export const clientAcceptOffer = async (req, res) => {
   try {
     const userId = req.user.user_id;
-    if (req.user.role !== "client") {
-      return res.status(403).json({ error: "Only clients can accept offers" });
+    if (!["client", "admin"].includes(req.user.role)) {
+      return res.status(403).json({ error: "Not allowed" });
     }
 
     const id = req.params.id;
     const appt = await getAppt(id);
     if (!appt) return res.status(404).json({ error: "Appointment not found" });
 
+    if(appt.last_offered_by === "client"){
+      return res.status(400).json({error: "You have made the offer. Wait for the lawyer to accept."})
+    }
+
     if (appt.status === "approved") {
       return res.status(400).json({ error: "Appointment already approved" });
-    }
-
-    if (!isOwnerClient(userId, appt)) {
-      return res.status(403).json({ error: "Not your appointment" });
-    }
-
-    if (appt.offered_fee === null || appt.offered_fee === undefined) {
-      return res.status(400).json({ error: "No lawyer offer to accept" });
     }
 
     const conflict = await hasSlotConflict(
@@ -531,40 +531,50 @@ export const clientAcceptOffer = async (req, res) => {
 
     if (conflict) {
       return res.status(409).json({
-        error: "Time slot no longer available",
+        error: "Time slot is no longer available",
       });
     }
+
+    const finalFee =
+      appt.offered_fee !== null && appt.offered_fee !== undefined
+        ? appt.offered_fee
+        : appt.proposed_fee;
 
     await pool.query(
       `
       UPDATE appointments
-      SET final_fee = ?, status = 'approved'
+      SET final_fee = ?, status = 'awaiting_payment'
       WHERE appointment_id = ?
       `,
-      [Number(appt.offered_fee), Number(id)]
+      [Number(finalFee || 0), Number(id)]
     );
 
     await addMessage(
       id,
       userId,
-      "client",
-      `Accepted lawyer offer. Final fee: $${Number(appt.offered_fee).toFixed(2)}`
+      req.user.role,
+      `Accepted appointment. Final fee: $${Number(finalFee).toFixed(2)}`
     );
 
     await notifyUser(
-      appt.lawyer_id,
+      appt.client_id,
       id,
-      "OFFER_ACCEPTED",
-      "Client accepted your offer",
-      `Appointment "${appt.subject}" finalized`
+      "PAYMENT_REQUIRED",
+      "Payment required",
+      `Please complete payment for "${appt.subject}" to confirm appointment`
+    );
+    await pool.query(
+      `
+  INSERT INTO payments (appointment_id, amount, status)
+  VALUES (?, ?, 'pending')
+  `,
+      [id, finalFee]
     );
 
-    res.json({
-      message: "Offer accepted",
-      final_fee: Number(appt.offered_fee),
-    });
+
+    res.json({ message: "Appointment accepted", final_fee: finalFee });
   } catch (e) {
-    res.status(500).json({ error: "Failed to accept offer" });
+    res.status(500).json({ error: e.message });
   }
 };
 
