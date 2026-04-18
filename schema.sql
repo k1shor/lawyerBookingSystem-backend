@@ -1,6 +1,10 @@
 -- ==========================
 -- HireLawyer Schema (CREATE ONLY)
 -- ==========================
+USE mysql;
+DROP DATABASE IF EXISTS hirelawyer;
+CREATE DATABASE hirelawyer CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE hirelawyer;
 
 -- ================= USERS =================
 CREATE TABLE users (
@@ -264,6 +268,31 @@ CREATE TABLE payments (
     ON DELETE CASCADE
 );
 
+CREATE TABLE faq_categories (
+  category_id INT AUTO_INCREMENT PRIMARY KEY,
+
+  name VARCHAR(150) NOT NULL,
+
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE faqs (
+  faq_id INT AUTO_INCREMENT PRIMARY KEY,
+
+  category_id INT NOT NULL,
+
+  question VARCHAR(255) NOT NULL,
+  answer TEXT NOT NULL,
+
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  CONSTRAINT fk_faq_category
+    FOREIGN KEY (category_id)
+    REFERENCES faq_categories(category_id)
+    ON DELETE CASCADE
+);
+
+
 -- ================= INDEXES =================
 CREATE INDEX idx_appt_client ON appointments(client_id);
 CREATE INDEX idx_appt_lawyer ON appointments(lawyer_id);
@@ -272,3 +301,11 @@ CREATE INDEX idx_appt_slot ON appointments(lawyer_id, appointment_date, appointm
 CREATE INDEX idx_msg_appt ON appointment_messages(appointment_id);
 
 CREATE INDEX idx_notif_user ON notifications(user_id, is_read);
+
+
+ALTER TABLE appointment_messages
+ADD message_type ENUM('chat','negotiation','document') DEFAULT 'chat';
+
+ALTER TABLE appointments
+ADD review_text TEXT,
+ADD rating INT;

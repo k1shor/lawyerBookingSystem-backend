@@ -176,7 +176,7 @@ export const initiateAppointmentEsewaPayment = async (req, res) => {
      await pool.query(
       `
       UPDATE appointments 
-      SET status='paid'
+      SET status='approved'
       WHERE appointment_id = ?
       `,
       [appt.appointment_id]

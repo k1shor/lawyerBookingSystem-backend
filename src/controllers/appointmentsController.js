@@ -273,8 +273,8 @@ export const lawyerAccept = async (req, res) => {
     const appt = await getAppt(id);
     if (!appt) return res.status(404).json({ error: "Appointment not found" });
 
-    if(appt.last_offered_by === "lawyer"){
-      return res.status(400).json({error: "You have made the offer. Wait for the client to accept."})
+    if (appt.last_offered_by === "lawyer") {
+      return res.status(400).json({ error: "You have made the offer. Wait for the client to accept." })
     }
 
     if (appt.status === "approved") {
@@ -391,7 +391,7 @@ export const makePayment = async (req, res) => {
 
     // Update appointment
     await pool.query(
-      `UPDATE appointments SET status = 'paid' WHERE appointment_id = ?`,
+      `UPDATE appointments SET status = 'approved' WHERE appointment_id = ?`,
       [appointment_id]
     );
 
@@ -475,10 +475,10 @@ export const clientCounterOffer = async (req, res) => {
 
     await pool.query(
       `
-      UPDATE appointments
-      SET proposed_fee = ?, negotiation_note = ?, status = 'negotiating'
-      WHERE appointment_id = ?
-      `,
+  UPDATE appointments
+  SET proposed_fee = ?, negotiation_note = ?, status = 'negotiating', last_offered_by = 'client'
+  WHERE appointment_id = ?
+  `,
       [Number(proposed_fee), negotiation_note || null, Number(id)]
     );
 
@@ -514,8 +514,8 @@ export const clientAcceptOffer = async (req, res) => {
     const appt = await getAppt(id);
     if (!appt) return res.status(404).json({ error: "Appointment not found" });
 
-    if(appt.last_offered_by === "client"){
-      return res.status(400).json({error: "You have made the offer. Wait for the lawyer to accept."})
+    if (appt.last_offered_by === "client") {
+      return res.status(400).json({ error: "You have made the offer. Wait for the lawyer to accept." })
     }
 
     if (appt.status === "approved") {
@@ -625,5 +625,42 @@ export const getAppointmentById = async (req, res) => {
     });
   } catch (e) {
     res.status(500).json({ error: "Failed to fetch appointment" });
+  }
+};
+
+export const completeAppointment = async (req, res) => {
+  try {
+    const userId = req.user.user_id;
+
+    if (req.user.role !== "client") {
+      return res.status(403).json({ error: "Only client can complete" });
+    }
+
+    const { id } = req.params;
+    const { review_text, rating } = req.body;
+
+    const appt = await getAppt(id);
+    if (!appt) return res.status(404).json({ error: "Not found" });
+
+    if (!isOwnerClient(userId, appt)) {
+      return res.status(403).json({ error: "Not yours" });
+    }
+
+    if (appt.status !== "approved") {
+      return res.status(400).json({ error: "Not allowed" });
+    }
+
+    await pool.query(
+      `
+      UPDATE appointments
+      SET status = 'completed', review_text = ?, rating = ?
+      WHERE appointment_id = ?
+      `,
+      [review_text || null, rating || null, id]
+    );
+
+    res.json({ message: "Completed" });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 };

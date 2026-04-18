@@ -8,7 +8,8 @@ import {
   clientCounterOffer,
   clientAcceptOffer,
   getAppointmentById,
-  makePayment
+  makePayment,
+  completeAppointment
 } from "../controllers/appointmentsController.js";
 import { authenticate } from "../middlewares/auth.js";
 
@@ -27,5 +28,7 @@ router.patch("/:id/confirm", authenticate, clientAcceptOffer);
 router.get('/:id', getAppointmentById)
 
 router.post("/payments/pay", makePayment);
+
+router.patch("/:id/complete", authenticate, completeAppointment);
 
 export default router;

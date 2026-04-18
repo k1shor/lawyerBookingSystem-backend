@@ -12,6 +12,8 @@ import adminRoutes from "./src/routes/adminRoutes.js";
 import clientRoutes from "./src/routes/clientRoutes.js";
 import notaryRoutes from "./src/routes/notaryRoutes.js";
 import paymentRoutes from "./src/routes/paymentRoutes.js";
+import faqCategoryRoutes from "./src/routes/faqCategoryRoutes.js";
+import faqRoutes from "./src/routes/faqRoutes.js";
 
 
 
@@ -38,6 +40,10 @@ app.use("/api/admin", adminRoutes )
 app.use("/api/clients", clientRoutes);
 app.use("/api/notary", notaryRoutes);
 app.use("/api/payment", paymentRoutes);
+
+// faq
+app.use("/api/faqs", faqRoutes)
+app.use("/api/faqCategory", faqCategoryRoutes)
 
 
 
